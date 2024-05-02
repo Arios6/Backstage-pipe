@@ -1,0 +1,63 @@
+name: OpenShift 
+
+env: 
+  IMAGE_REGISTRY: quay.io/rhdevelopers
+  REGISTRY_USER: ${{ github.actor }}
+  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+  APP_NAME: bubble-animation
+  IMAGE_TAGS: 1.0.0 ${{ github.sha }}
+
+  OPENSHIFT_SERVER: https://c116-e.us-south.containers.cloud.ibm.com:32543
+  OPENSHIFT_TOKEN: sha256~VnRCqROxwFf9O_lMSuq109rexIB8j0uaf6OlBIC0vZQ
+  OPENSHIFT_NAMESPACE: bubble-animation
+
+  APP_PORT: "8080"
+
+on:
+  push: 
+    branches: [ master ]
+
+jobs:
+  build-and-push: 
+    name: Build and push to GitHub container registry
+    runs-on: ubuntu-18.04
+    environment: development
+
+    outputs:
+        ROUTE: ${{ steps.deploy-and-expose.outputs.route }}
+        SELECTOR: ${{ steps.deploy-and-expose.outputs.selector }}
+
+    steps:
+    - name: Checkout
+      id: checkout
+      uses: actions/checkout@v2
+
+    - name: S2I Build 
+      id: build_image
+      uses: redhat-actions/s2i-build@v2
+      with:
+        path_context: '.'
+        builder_image: 'registry.access.redhat.com/ubi8/openjdk-11'
+        image: ${{ env.APP_NAME }}
+        tags: ${{ env.IMAGE_TAGS }}
+
+    - name: Push to Registry 
+      id: push-to-registry
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        image: ${{ steps.build_image.outputs.image }}
+        tags: ${{ steps.build_image.outputs.tags }}
+        registry: ${{ env.IMAGE_REGISTRY }}
+        username: ${{ env.REGISTRY_USER }}
+        password: ${{ env.REGISTRY_PASSWORD }}
+
+    - name: Log in to OpenShift 
+      uses: redhat-actions/oc-login@v1
+      with:
+        openshift_server_url: ${{ env.OPENSHIFT_SERVER }}
+        openshift_token: ${{ env.OPENSHIFT_TOKEN }}
+        insecure_skip_tls_verify: true
+        namespace: ${{ env.OPENSHIFT_NAMESPACE }}
+
+    - run: | 
+         "${GITHUB_WORKSPACE}/.github/script.sh" ${{ env.APP_NAME }} ${{ env.IMAGE_REGISTRY }}/${{ steps.build_image.outputs.image }}:${{ github.sha }} ${{ env.OPENSHIFT_NAMESPACE }}
